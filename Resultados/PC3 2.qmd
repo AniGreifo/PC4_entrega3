@@ -1,0 +1,293 @@
+---
+title: "PC3 2/2"
+format: html
+editor: visual
+---
+
+## Cargar los paquetes
+
+```{r}
+library(tidyverse)
+library(here)
+library(rio)
+library(gtsummary)
+library(car)
+library(survival)
+library(performance)
+```
+
+## 2. Ejemplos de análisis univariado y multivariado en una regresión logística
+
+### 2.1 El dataset para este ejercicio
+
+Para ilustrar el proceso de análisis multivariado en un modelo de regresión logística, se empleará el dataset `hipert_covid`. Este conjunto de datos incluye información de 287 pacientes diagnosticados con COVID-19 y diabetes mellitus. Las variables registradas comprenden el desenlace hospitalario (vivo o fallecido), edad (en años), sexo (femenino o masculino), presencia de hipertensión arterial, valores de presión sanguínea, frecuencia cardiaca y frecuencia respiratoria, entre otras variables de relevancia clínica.
+
+Cargando los datos
+
+```{r}
+dengue <- import(here("data", "dengue.csv"))
+```
+
+```{r}
+head(dengue)
+```
+
+### 2.2 El análisis univariado
+
+En esta sección se estimarán los Odds Ratios (OR) de cada variable de manera independiente, es decir, sin ajuste por otras covariables.
+
+Antes de realizar este análisis, es necesario definir las categorías de referencia para las variables categóricas mediante la función `mutate()` en combinación con `relevel()`. Este paso asegura que la interpretación de los OR se haga en relación con la categoría de referencia seleccionada. El resultado se guarda en un nuevo objeto llamado dengue_mod
+
+```{r}
+dengue_mod <- dengue |>
+  mutate(
+    Resultado = relevel(as.factor(Resultado), ref = "Dengue negativo"),
+    Genero = relevel(as.factor(Genero), ref = "Femenino"),
+    Tipo_Zona = relevel(as.factor(Tipo_Zona), ref = "Desarrollada"),
+    NS1 = relevel(as.factor(NS1), ref = "Negativo")
+  ) |>
+  na.omit()
+```
+
+Para obtener la tabla con los resultados del análisis univariado, se utiliza la función `tbl_uvregression()`, que permite generar tablas con las estimaciones de regresión logística para cada variable incluida. Entre sus argumentos se especifican el método de regresión, las variables a analizar, la familia de distribución (binomial para modelos logísticos), y opciones de presentación de los resultados como los intervalos de confianza, valores p y formato de los estimadores.
+
+```{r}
+tabla_reg_log_univ <- dengue_mod |>
+  tbl_uvregression(
+    include = c(Edad, Genero, Tipo_Zona),
+    y = Resultado,
+    method = glm,
+    method.args = list(family = binomial),
+    exponentiate = TRUE,
+    conf.int = TRUE,
+    hide_n = TRUE,
+    add_estimate_to_reference_rows = FALSE,
+    pvalue_fun = ~ style_pvalue(.x, digits = 3),
+    estimate_fun = ~ style_number(.x, digits = 2),
+    label = list(
+      Edad ~ "Edad (años)",
+      Genero ~ "Sexo",
+      Tipo_Zona ~ "Tipo de zona"
+    )
+  ) |>
+  bold_labels() |>
+  bold_p(t = 0.05) |>
+  modify_header(
+    estimate = "**OR no ajustado**",
+    p.value = "**valor p**"
+  )
+```
+
+```{r}
+tabla_reg_log_univ
+```
+
+Cada año adicional de edad no cambia significativamente la probabilidad de tener dengue positivo. El OR = 1 indica efecto nulo, y el valor p \> 0.05 confirma que no es significativo
+
+Los hombres tienen una ligera menor probabilidad de dengue positivo en comparación con las mujeres, pero la diferencia no es estadísticamente significativa. El intervalo incluye 1 y el p-valor es alto
+
+Las personas en zonas no desarrolladas tienen un 18% mayor riesgo relativo, pero este efecto tampoco es significativo (el IC contiene el 1, y el p \> 0.05)
+
+### 2.3 El análisis multivariado
+
+Para el análisis de regresión logística multivariada, se aplicó una estrategia de selección automática de variables utilizando tres enfoques: eliminación hacia atrás (*backward elimination*), selección hacia adelante (*forward selection*) y selección paso a paso (*stepwise selection)*.
+
+**Paso 1. Ajuste del modelo inicial**
+
+Ajustamos un modelo de regresión logística binaria que incluya todas las variables candidatas
+
+```{r}
+var_dengue <- glm(
+  Resultado ~ Edad + Genero + Tipo_Zona,
+  data = dengue_mod,
+  family = binomial(link = "logit")
+)
+```
+
+**Paso 2a. Realizamos la selección de variables** usando la técnica Eliminación hacia atrás (Backward elimination).
+
+```{r}
+multi_backward <- var_dengue |>
+  step(direction = "backward", trace = FALSE)
+```
+
+**Paso 2b. Realizamos la selección de variables** usando la técnica Selección hacia adelante (Forward selection).
+
+```{r}
+multi_forward <- var_dengue |>
+  step(direction = "forward", trace = FALSE)
+```
+
+**Paso 3c. Realizamos la selección de variables** usando la técnica Selección paso a paso (Stepwise selection).
+
+```{r}
+multi_stepwise <- var_dengue |>
+  step(direction = "both", trace = FALSE)
+```
+
+Los resultados de la selección de las variables para el modelo se han guardado en los objetos: multi_backward, multi_forward, y multi_stepwise. El siguiente paso es comparar los valores de AIC y la multicolinealidad entre las variables seleccionadas por cada uno de los modelos.
+
+**Paso 3. Estimados el AIC para los modelos.**
+
+Podemos visualizar el AIC y cuáles variables han sido seleccionadas en cada modelo, usando la función summary.
+
+```{r}
+summary(multi_backward)
+```
+
+El procedimiento de selección eliminó todas las variables del modelo, resultando en un modelo nulo, que solo incluye el intercepto.
+
+Esto indica que ninguna de las variables incluidas (Edad, Género, Tipo de zona) contribuyó de forma estadísticamente significativa a predecir el resultado de dengue positivo.
+
+El valor de AIC del modelo final fue 1383.9, correspondiente al modelo sin predictores.
+
+```{r}
+summary(multi_forward)
+```
+
+Aunque el modelo retuvo todas las variables propuestas, ninguna presentó una asociación estadísticamente significativa con el resultado de dengue positivo
+El leve aumento del OR para zonas no desarrolladas podría ser de interés epidemiológico, pero no fue suficiente para justificar su inclusión como predictor relevante en términos estadísticos
+
+```{r}
+summary(multi_stepwise)
+```
+
+El intercepto es significativo (p = 0.037), lo cual indica que la proporción base de casos de dengue positivo es distinta de 50%.
+
+El procedimiento de selección paso a paso descartó todas las variables candidatas, generando un modelo sin predictores. Esto indica que ninguna de las variables evaluadas (Edad, Sexo, Tipo de zona, Tipo de vivienda) contribuye de manera significativa a explicar el diagnóstico de dengue positivo en la muestra analizada.
+
+### 2.5 Evaluación de colinealidad
+
+Finalmente, evaluamos la colinealidad usando la función `check_collinearity()` del paquete `performance`.
+
+```{r}
+performance::check_collinearity(multi_forward, ci = NULL)
+```
+
+El hecho de que el modelo haya descartado todas las variables candidatas indica que ninguna aporta valor explicativo suficiente para mejorar el ajuste del modelo.\
+El intercepto es significativo (p = 0.037), pero esto simplemente sugiere que la proporción de casos de dengue positivo en la muestra es diferente al 50%; no implica que exista relación con las variables analizadas.
+
+```{r}
+performance::check_collinearity(multi_stepwise, ci = 
+```
+
+### **2.6 Conclusión**
+
+Los modelos generados mediante eliminación hacia atrás (`backward elimination`) y selección paso a paso (`stepwise selection`) condujeron a un modelo nulo, sin variables independientes seleccionadas, lo que indica que ninguna de las variables candidatas (Edad, Sexo, Tipo de zona) mostró evidencia estadística suficiente como para permanecer en el modelo.
+
+En cambio, la técnica de selección hacia adelante (`forward selection`) retuvo las tres variables iniciales; sin embargo, ninguna resultó estadísticamente significativa y el valor de AIC fue apenas mayor al del modelo nulo. Esto sugiere que la inclusión de estas variables no mejoró el ajuste del modelo ni aportó valor predictivo sustancial.
+
+Dado que las tres técnicas de selección convergieron hacia modelos con nula o muy baja capacidad explicativa, se descarta evidencia de colinealidad o redundancia, y más bien se atribuye el resultado a la escasa relación entre las variables analizadas y el desenlace (dengue positivo).
+
+### 2.7 Modelo final
+
+Con base en los resultados de ajuste (AIC) y significancia estadística, se concluye que el modelo óptimo en este caso corresponde al modelo nulo generado por los procedimientos de selección automática (`backward` y `stepwise`), ya que no se identificaron predictores significativos del diagnóstico de dengue positivo entre las variables disponibles.
+
+## 3 Reporte del análisis univariado y multivariado
+
+Como en las sesiones anteriores, reportaremos los resultados del modelo final de regresión logística.
+
+Tabla para los resultados de la regresión univariado (no ajustado)
+
+```{r}
+tabla_univ <- dengue_mod |>
+  tbl_uvregression(
+    include = c(Edad, Genero, Tipo_Zona, Tipo_Vivienda),  # agrega NS1 si deseas explorarla
+    y = Resultado,
+    method = glm,
+    method.args = list(family = binomial),
+    exponentiate = TRUE,
+    conf.int = TRUE,
+    hide_n = TRUE,
+    add_estimate_to_reference_rows = FALSE,
+    pvalue_fun = ~ style_pvalue(.x, digits = 3),
+    estimate_fun = ~ style_number(.x, digits = 2),
+    label = list(
+      Edad ~ "Edad (años)",
+      Genero ~ "Sexo",
+      Tipo_Zona ~ "Tipo de zona",
+      Tipo_Vivienda ~ "Tipo de vivienda"
+      # NS1 ~ "NS1 (positivo/negativo)"  # incluir solo si deseas explorarlo con advertencia
+    )
+  ) |>
+  bold_labels() |>
+  bold_p(t = 0.05) |>
+  modify_header(
+    estimate = "**OR**",
+    p.value = "**valor p**"
+  )
+```
+
+Tabla para los resultados de la regresión multivariable (ajustado)
+
+```{r}
+tabla_multi <- glm(
+  Resultado ~ Edad + Genero + Tipo_Zona,
+  data = dengue_mod,
+  family = binomial(link = "logit")
+) |>
+  tbl_regression(
+    exponentiate = TRUE,
+    conf.int = TRUE,
+    pvalue_fun = ~ style_pvalue(.x, digits = 3),
+    estimate_fun = ~ style_number(.x, digits = 2),
+    label = list(
+      Edad ~ "Edad (años)",
+      Genero ~ "Sexo",
+      Tipo_Zona ~ "Tipo de zona"
+    )
+  ) |>
+  bold_labels() |>
+  bold_p(t = 0.05) |>
+  modify_header(
+    estimate = "**OR ajustado**",
+    p.value = "**valor p**"
+  )
+```
+
+La tabla final la construimos usando la función `tbl_merge()`. De modo que la tabla del análisis univariado o no ajustado y multivariado o ajustado, se muestren lado a lado.
+
+```{r}
+tabla_final <- tbl_merge(
+  list(tabla_univ, tabla_multi),
+  tab_spanner = c("**Univariado**", "**Multivariado**")
+)
+```
+
+```{r}
+tabla_final
+```
+
+### **3.1 ¿Cómo interpretar?**
+
+En el modelo de regresión logística ajustado, ninguna de las variables analizadas mostró una asociación estadísticamente significativa con el diagnóstico de dengue positivo.
+
+Edad
+
+En el análisis univariado, el OR fue 1.00 (IC95%: 0.99–1.01; p = 0.710).
+
+En el modelo multivariado, el OR ajustado también fue 1.00 (IC95%: 0.99–1.01; p = 0.704).
+
+Esto indica que por cada año adicional de edad, las probabilidades (odds) de presentar dengue positivo no cambian significativamente.
+
+Sexo
+
+El OR ajustado para el sexo masculino fue 0.97 (IC95%: 0.76–1.25; p = 0.834).
+
+Esto sugiere que, en comparación con las mujeres, los hombres no tienen mayor ni menor riesgo estadísticamente significativo de dengue positivo.
+
+Tipo de zona
+
+Vivir en una zona *no desarrollada* se asoció con un OR ajustado de 1.18 (IC95%: 0.92–1.51; p = 0.200).
+
+Aunque numéricamente las personas en zonas no desarrolladas mostraron un 18% más de odds de dengue positivo, esta diferencia no fue significativa.
+
+Tipo de vivienda
+
+En comparación con vivir en un edificio:
+
+Vivir en una vivienda clasificada como "Otro" tuvo un OR ajustado de 0.90 (IC95%: 0.67–1.22; p = 0.499).
+
+Vivir en una vivienda tipo *Tinshed* tuvo un OR ajustado de 1.03 (IC95%: 0.76–1.39; p = 0.872).
+
+Ninguna de las categorías alternativas mostró asociación significativa con dengue positivo.

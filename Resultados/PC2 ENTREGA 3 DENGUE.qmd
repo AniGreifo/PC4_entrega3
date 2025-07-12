@@ -1,0 +1,148 @@
+---
+title: "Análisis de Datos de Dengue"
+format: html
+editor: visual
+---
+
+## Integrantes
+
+-   Greifo Rodríguez Ani Cecilia
+-   Enrique Tincopa Zarate
+-   Quispe Prado Miluska
+-   Pareja Abad Shaden
+-   Edgar Saire Licla
+
+## Introducción
+
+El dengue es una enfermedad viral transmitida por mosquitos que representa un problema de salud pública en muchas partes del mundo, incluyendo Dhaka, Bangladesh. Este análisis tiene como objetivo investigar la relación entre la edad de los individuos y el tipo de zona en la que residen (desarrollada o no desarrollada) en el contexto de los casos de dengue reportados. Utilizaremos datos recopilados en Dhaka para realizar una regresión lineal simple, pruebas t de Student y un análisis de varianza (ANOVA) para determinar si hay diferencias significativas en la edad de los individuos según el tipo de zona.
+
+# Instalación de paquetes necesarios
+
+```{r}
+# Instalación de paquetes si no están instalados
+if (!require("dplyr")) install.packages("dplyr")
+```
+
+# Carga de paquetes necesarios
+
+```{r}
+library(dplyr)
+```
+
+# Regresión lineal simple 
+
+Primero, cargamos los datos desde el archivo CSV.
+
+```{r}
+
+dengue_data <- read.csv("C:/Users/Franco Rodrigo/Desktop/DATA/dengue.csv", stringsAsFactors = FALSE)
+
+
+# Convertir variables categóricas a factores
+dengue_data$Genero <- as.factor(dengue_data$Genero)
+dengue_data$NS1 <- as.factor(dengue_data$NS1)
+dengue_data$IgG <- as.factor(dengue_data$IgG)
+dengue_data$IgM <- as.factor(dengue_data$IgM)
+dengue_data$Zona <- as.factor(dengue_data$Zona)
+dengue_data$Tipo_Zona <- as.factor(dengue_data$Tipo_Zona)
+dengue_data$Tipo_Vivienda <- as.factor(dengue_data$Tipo_Vivienda)
+dengue_data$Distrito <- as.factor(dengue_data$Distrito)
+dengue_data$Resultado <- as.factor(dengue_data$Resultado)
+```
+
+# Exploración de datos
+
+```{r}
+
+# Número de observaciones
+nrow(dengue_data)
+
+# Resumen de la variable Edad
+summary(dengue_data$Edad)
+
+# Tabla de frecuencias para Tipo_Zona
+table(dengue_data$Tipo_Zona)
+```
+
+Realizamos la regresión lineal simple con Edad como variable dependiente y Tipo_Zona como variable independiente.
+
+```{r}
+model <- lm(Edad ~ Tipo_Zona, data = dengue_data)
+summary(model)
+```
+
+# Prueba T de Student para nuestras independientes 
+
+Realizamos una prueba t de Student para comparar la edad media entre las zonas desarrolladas y no desarrolladas.
+
+```{r}
+## Prueba T de Student para muestras independientes
+
+# Realizamos una prueba t de Student para comparar la edad media 
+# entre las zonas desarrolladas y no desarrolladas.
+
+# Prueba t
+t_test_result <- t.test(Edad ~ Tipo_Zona, data = dengue_data)
+print(t_test_result)
+
+# Gráfico: Boxplot de Edad por Tipo de Zona
+library(ggplot2)
+
+ggplot(dengue_data, aes(x = Tipo_Zona, y = Edad, fill = Tipo_Zona)) +
+  geom_boxplot(alpha = 0.7) +
+  labs(title = "Comparación de Edad por Tipo de Zona",
+       subtitle = "Visualización de la prueba t de Student",
+       x = "Tipo de Zona",
+       y = "Edad") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+# Análisis de varianza (ANOVA) 
+
+Realizamos un ANOVA para la regresión lineal simple.
+
+```{r}
+## Análisis de varianza (ANOVA)
+
+# Realizamos un ANOVA para la regresión lineal simple
+anova_model <- anova(model)
+print(anova_model)
+
+# Gráfico de medias por grupo con error estándar
+library(ggplot2)
+library(dplyr)
+
+# Calcular medias y error estándar por grupo
+summary_data <- dengue_data %>%
+  group_by(Tipo_Zona) %>%
+  summarise(
+    media_edad = mean(Edad, na.rm = TRUE),
+    sd_edad = sd(Edad, na.rm = TRUE),
+    n = n(),
+    se = sd_edad / sqrt(n)  # error estándar
+  )
+
+# Crear gráfico
+ggplot(summary_data, aes(x = Tipo_Zona, y = media_edad, fill = Tipo_Zona)) +
+  geom_col(alpha = 0.7, width = 0.6) +
+  geom_errorbar(aes(ymin = media_edad - se, ymax = media_edad + se), width = 0.2) +
+  labs(title = "Edad media por Tipo de Zona",
+       subtitle = "Con barras de error (± error estándar)",
+       x = "Tipo de Zona",
+       y = "Edad media") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+# Conclusión e interpretación 
+
+En este análisis, hemos examinado la relación entre la edad de los individuos y el tipo de zona en la que residen utilizando datos de casos de dengue en Dhaka. Los resultados específicos dependen de la ejecución del código con el conjunto de datos completo. A continuación, se proporciona una plantilla para la interpretación:
+
+-   **Regresión lineal simple**: El coeficiente para Tipo_ZonaNo desarrollada indica la diferencia en la edad media con respecto a Tipo_ZonaDesarrollada. Un p-valor menor a 0.05 sugeriría una diferencia significativa.
+-   **Prueba t de Student**: Compara las edades medias entre los dos tipos de zonas. Un p-valor menor a 0.05 indica una diferencia estadísticamente significativa.
+-   **ANOVA**: Evalúa si el modelo de regresión explica una porción significativa de la varianza en la edad. Un p-valor menor a 0.05 implica que Tipo_Zona tiene un efecto significativo.
+
+En el contexto de los casos de dengue, estos hallazgos podrían sugerir si la edad de los individuos varía según el desarrollo de la zona, lo que podría estar relacionado con factores de exposición o vulnerabilidad. Se recomienda realizar análisis adicionales considerando otras variables para una comprensión más completa.

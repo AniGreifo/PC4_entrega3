@@ -1,0 +1,355 @@
+---
+title: "PC4 2"
+format: html
+editor: visual
+---
+
+## Instalar y cargar los paquetes
+
+```{r}
+library(mice)
+library(tidyverse)
+library(here)
+library(rio)
+library(ggmice)
+library(gtsummary)
+```
+
+## 1 Datos perdidos en investigación en salud
+
+En estudios epidemiológicos como el nuestro, donde se analiza información de pacientes con sospecha de dengue, es común encontrar datos faltantes. Por ejemplo, en el registro de pruebas serológicas (como NS1, IgG e IgM), puede haber valores ausentes porque estas pruebas no fueron solicitadas, no estaban disponibles al momento de la consulta, o no se ingresaron correctamente en el sistema.
+
+Asimismo, variables como la edad, el tipo de vivienda o el tipo de zona de residencia podrían faltar si los pacientes no brindaron esa información o si hubo errores de digitación. Estas situaciones son comunes en investigaciones en salud pública, especialmente cuando se trabaja con datos de campo o de sistemas de vigilancia clínica.
+
+Cuando se aplican métodos de análisis, como regresión logística o modelos de clasificación para predecir la probabilidad de un diagnóstico de dengue positivo, la práctica habitual en muchos software estadísticos es eliminar los registros incompletos. Esta estrategia, conocida como análisis de casos completos, puede reducir el tamaño efectivo de la muestra y sesgar los resultados si los datos faltan de forma no aleatoria.
+
+## 2 Imputación de datos
+
+En lugar de descartar registros incompletos, es preferible aprovechar toda la información disponible para lograr estimaciones más robustas y confiables. En este análisis, aplicaremos una técnica conocida como imputación, que busca reemplazar los valores faltantes con estimaciones fundamentadas en los datos observados.
+
+Existen múltiples enfoques para imputar datos. Algunos métodos simples, como reemplazar valores faltantes con la media o la moda, pueden resultar en estimaciones sesgadas. Por eso, utilizaremos una técnica más moderna y robusta: la imputación múltiple por medias predictivas (PMM) mediante el paquete mice en R.
+
+Esta técnica nos permitirá conservar la estructura de la variabilidad de los datos y obtener inferencias válidas, especialmente si luego queremos modelar el riesgo de dengue en función de variables como edad, zona, tipo de vivienda, y resultados de pruebas serológicas.
+
+## 3 El dataset para este ejercicio
+
+Para ilustrar el proceso de imputación múltiple de datos, utilizaremos el conjunto de datos dengue.\
+Este dataset incluye información de 1000 pacientes adultos evaluados clínicamente ante sospecha de dengue en la ciudad de Dhaka.
+
+Las variables registradas comprenden el resultado del diagnóstico de dengue (positivo o negativo), la edad (en años), el sexo (femenino o masculino), los resultados de las pruebas serológicas (NS1, IgG, IgM), así como datos contextuales como la zona de residencia, el tipo de zona (desarrollada o no desarrollada), y el tipo de vivienda.
+
+Algunos pacientes presentan valores faltantes en al menos una de estas variables, lo cual hace necesario aplicar técnicas de imputación para no perder información valiosa y mantener la potencia estadística del análisis.
+
+Cargando los datos
+
+```{r}
+data_sm <- import(here("data", "dengue.csv"))
+```
+
+Un vistazo a los datos
+
+```{r}
+head(data_sm)
+```
+
+## 4 Realizando la imputación de datos
+
+### 4.1 ¿Donde estan los valores perdidos?
+
+Es importante saber en qué variables se encuentran los datos antes de iniciar la inputación. Una forma rápida es usando la función colSums() es is.na().
+
+En este ejercicio, como nuestro dataset original data_sm no contiene valores faltantes reales, vamos a simular valores perdidos artificialmente en algunas variables para fines educativos. Esto nos permitirá aplicar técnicas de imputación múltiple y visualizar sus efectos.
+
+Primero, vamos a crear una copia del dataset y luego introduciremos valores faltantes de forma aleatoria en tres variables: Edad, IgM y Tipo_Zona.
+
+```{r}
+set.seed(123) # reproducibilidad
+data_sm_na <- data_sm
+# Simular valores faltantes (~5% por variable)
+n <- nrow(data_sm_na)
+data_sm_na$Edad[sample(1:n, size = floor(0.05 * n))] <- NA
+data_sm_na$IgM[sample(1:n, size = floor(0.05 * n))] <- NA
+data_sm_na$Tipo_Zona[sample(1:n, size = floor(0.05 * n))] <- NA
+```
+
+```{r}
+colSums(is.na(data_sm_na))
+```
+
+Incluso mejor, podemos visualizar los datos perdidos en un mapa de calor usando la función `plot_pattern()` de **ggmice**.
+
+```{r}
+data_sm_na |>
+  select(Edad, Genero, NS1, IgM, Tipo_Zona, Tipo_Vivienda, Resultado) |>
+  ggmice::plot_pattern(square = TRUE, rotate = TRUE)
+```
+
+Este gráfico nos ayuda a ver en qué columnas faltan datos y cuántas personas tienen datos incompletos.
+
+Arriba del gráfico están los nombres de las variables, como Edad, IgM o Tipo_Zona. Las partes azules indican que esa persona sí tiene ese dato, y las partes rosadas muestran que ese dato está perdido.
+
+En total, hay tres variables con datos faltantes: Edad, IgM y Tipo_Zona. Cada una tiene 50 valores perdidos. El resto de las variables, como Género, NS1, Tipo de Vivienda y Resultado, están completas.
+
+La mayoría de los registros (855 personas) tienen todos los datos completos. También hay un grupo de 49 personas que tienen solo un dato faltante. Finalmente, solo 6 personas tienen dos datos faltantes al mismo tiempo.
+
+En resumen: la mayoría de los datos están bien, y solo unas pocas personas tienen datos incompletos. Por eso, es una buena idea usar imputación para completar esos espacios vacíos en lugar de eliminar a esas personas del análisis.
+
+### 4.2 Comparación de participantes con y sin valores perdidos
+
+Antes de hacer la imputación, es una buena práctica comparar cómo son las personas que tienen valores faltantes con las que no los tienen. Por ejemplo, podríamos preguntarnos: ¿las personas que tienen datos perdidos en la variable Edad son diferentes (en sexo, tipo de zona, resultado de dengue, etc.) a las que sí tienen ese dato completo?
+
+Si vemos muchas diferencias, conviene imputar los datos. Pero si los dos grupos son parecidos, quizás no es tan grave trabajar solo con los casos completos.
+
+Vamos a hacer esta comparación para las variables Edad, IgM y Tipo_Zona, que son las que tienen datos faltantes simulados.
+
+```{r}
+# Comparación por Edad
+tabla_edad <- data_sm_na |>
+  dplyr::select(Genero, Edad, NS1, IgM, Tipo_Zona, Tipo_Vivienda, Resultado) |>
+  mutate(missing = factor(is.na(Edad),
+                          levels = c(FALSE, TRUE),
+                          labels = c("Sin valores perdidos", "Con valores perdidos"))) |>
+  tbl_summary(
+    by = missing,
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    )
+  ) |>
+  modify_header(label = "**Variable**",
+                all_stat_cols() ~ "**{level}**<br>N = {n} ({style_percent(p, digits = 1)}%)") |>
+  modify_caption("Características de los participantes según valor perdido en **Edad**") |>
+  bold_labels()
+
+# Comparación por IgM
+tabla_igm <- data_sm_na |>
+  dplyr::select(Genero, Edad, NS1, IgM, Tipo_Zona, Tipo_Vivienda, Resultado) |>
+  mutate(missing = factor(is.na(IgM),
+                          levels = c(FALSE, TRUE),
+                          labels = c("Sin valores perdidos", "Con valores perdidos"))) |>
+  tbl_summary(
+    by = missing,
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    )
+  ) |>
+  modify_header(label = "**Variable**",
+                all_stat_cols() ~ "**{level}**<br>N = {n} ({style_percent(p, digits = 1)}%)") |>
+  modify_caption("Características de los participantes según valor perdido en **IgM**") |>
+  bold_labels()
+
+# Comparación por Tipo_Zona
+tabla_tipozona <- data_sm_na |>
+  dplyr::select(Genero, Edad, NS1, IgM, Tipo_Zona, Tipo_Vivienda, Resultado) |>
+  mutate(missing = factor(is.na(Tipo_Zona),
+                          levels = c(FALSE, TRUE),
+                          labels = c("Sin valores perdidos", "Con valores perdidos"))) |>
+  tbl_summary(
+    by = missing,
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    )
+  ) |>
+  modify_header(label = "**Variable**",
+                all_stat_cols() ~ "**{level}**<br>N = {n} ({style_percent(p, digits = 1)}%)") |>
+  modify_caption("Características de los participantes según valor perdido en **Tipo_Zona**") |>
+  bold_labels()
+
+# Juntar todas las tablas en una
+tabla_comparacion <- tbl_merge(
+  tbls = list(tabla_edad, tabla_igm, tabla_tipozona),
+  tab_spanner = c("**Edad**", "**IgM**", "**Tipo_Zona**")
+)
+```
+
+```{r}
+tabla_comparacion
+```
+
+Para saber si las personas con datos faltantes son diferentes al resto, comparamos sus características según si les falta información en Edad, IgM o Tipo_Zona. Esto es útil porque si los dos grupos son parecidos, no pasa nada grave si usamos solo los casos completos. Pero si hay diferencias importantes, lo mejor es imputar los datos.
+
+En el caso de la variable Edad, hay 950 personas con el dato completo y 50 con el dato perdido. Ambos grupos tienen una distribución parecida entre hombres y mujeres. El promedio de edad en los que sí tienen ese dato es de 36 años. Además, las proporciones en el resultado de la prueba NS1 o el diagnóstico de dengue son muy similares entre los dos grupos.
+
+Con la variable IgM también hay 50 personas sin ese dato. Las características generales del grupo con el dato perdido son bastante parecidas al grupo con IgM presente. Por ejemplo, la proporción de personas con dengue positivo o negativo, la edad promedio y el tipo de vivienda no cambian mucho. Sí se ve una pequeña diferencia en el resultado de la prueba NS1, pero no es muy marcada.
+
+Para Tipo_Zona, también hay 50 casos con dato faltante. En los que sí tienen ese dato, la mitad vive en zona desarrollada y la otra mitad en zona no desarrollada. En el grupo con dato perdido, las proporciones de sexo, edad, tipo de vivienda y resultado de dengue son prácticamente iguales.
+
+### 4.3 ¿Qué variables debo incluir en el proceso de imputación?
+
+Para hacer una imputación bien hecha, necesitamos incluir todas las variables que se van a usar después en los análisis, incluso si esas variables no tienen valores perdidos. ¿Por qué? Porque el modelo de imputación debe aprovechar toda la información disponible para poder estimar bien los valores faltantes.
+
+También es buena idea incluir variables que puedan estar relacionadas con las variables que sí tienen datos perdidos. Aunque no tengan NA, igual pueden ayudar a predecir mejor los datos que faltan.
+
+Otra cosa importante es que las variables categóricas deben estar en formato tipo factor, porque si no, el paquete `mice` podría no tratarlas correctamente. Por eso, vamos a preparar los datos transformando esas variables categóricas antes de imputar.
+
+El siguiente código selecciona las variables que vamos a usar e indica que algunas, como Resultado, Genero, NS1, IgM, Tipo_Zona y Tipo_Vivienda, deben ser tratadas como factores:
+
+```{r}
+input_data <- data_sm_na |>
+  dplyr::select(
+    Edad,
+    Genero,
+    NS1,
+    IgM,
+    Tipo_Zona,
+    Tipo_Vivienda,
+    Resultado
+  ) |>
+  mutate(
+    Genero = as.factor(Genero),
+    NS1 = as.factor(NS1),
+    IgM = as.factor(IgM),
+    Tipo_Zona = as.factor(Tipo_Zona),
+    Tipo_Vivienda = as.factor(Tipo_Vivienda),
+    Resultado = as.factor(Resultado)
+  )
+```
+
+### 4.4 La función `mice()` para imputar datos
+
+Para imputar datos utilizaremos la función `mice()` del paquete del mismo nombre. Entre sus argumentos, debemos especificar:
+
+-   el número de imputaciones con `m`,
+-   una semilla (`seed`) para que los resultados sean reproducibles, y
+-   el método de imputación con `method`.
+
+En nuestro caso, el método `pmm` se usará para variables numéricas continuas, como `Edad`. Para variables categóricas binarias como `IgM`, se usa `logreg`. Las variables que no tienen valores faltantes se dejan con `""` (vacío), porque no necesitan imputación.
+
+Nuestro dataset tiene 7 variables, y las únicas con valores perdidos son `Edad`, `IgM` y `Tipo_Zona`. Las variables están en el siguiente orden:
+
+```{r}
+data_imputada <- mice(
+  input_data,
+  m = 5,
+  method = c(
+    "pmm",     # Edad (numérica continua)
+    "",        # Genero
+    "",        # NS1
+    "logreg",  # IgM (binaria)
+    "polyreg", # Tipo_Zona (categórica con más de 2 niveles)
+    "",        # Tipo_Vivienda
+    ""         # Resultado
+  ),
+  maxit = 10,
+  seed = 123,
+  print = FALSE
+)
+```
+
+```{r}
+data_imputada
+```
+
+Después de correr la función mice(), se generaron 5 versiones del dataset con los valores imputados. Esto quiere decir que ahora tenemos cinco posibles formas de completar los datos faltantes, lo cual nos da más precisión cuando hagamos análisis después.
+
+En la parte que dice “Imputation methods”, se muestra qué método se usó para cada variable. Por ejemplo:
+
+Para Edad se usó pmm, que es un método muy bueno para números como la edad.
+
+Para IgM se usó logreg, porque es una variable con solo dos posibles respuestas (como positivo/negativo).
+
+Para Tipo_Zona se usó polyreg, ya que tiene más de dos categorías (como desarrollada, no desarrollada, etc.).
+
+Las otras variables como Genero, NS1, Tipo_Vivienda y Resultado no tienen datos faltantes, así que no se les aplicó ningún método.
+
+Más abajo aparece una tabla llamada PredictorMatrix. Esta tabla muestra qué variables se usaron para ayudar a predecir los valores que faltaban en cada caso. Por ejemplo, cuando se imputó Edad, se usó información de todas las demás variables (Genero, NS1, IgM, etc.) excepto ella misma.
+
+Un cero significa que esa variable no se usó como predictor, y un uno significa que sí se usó. Entonces, por ejemplo, Tipo_Vivienda no se usó para predecirse a sí misma, pero sí se usó para ayudar a predecir otras variables.
+
+## 5 Analizando los datos imputados
+
+Antes de seguir con más análisis, es importante revisar cómo quedaron los datos imputados. Queremos ver si los valores que el modelo completó son razonables y parecidos a los datos reales que sí teníamos. Una forma visual de hacer esto es con gráficos de cajas (boxplots), que nos muestran la distribución de los valores imputados en comparación con los valores observados.
+
+A continuación, se muestra cómo hacerlo para la variable `Edad`, que es numérica. Después haremos lo mismo para `IgM` y `Tipo_Zona`, que son categóricas.
+
+Para la variable Edad
+
+```{r}
+ggmice(data_imputada, aes(x = .imp, y = Edad)) +
+  geom_jitter(height = 0, width = 0.25) +
+  geom_boxplot(width = 0.5, size = 1, alpha = 0.55, outlier.shape = NA) +
+  labs(x = "Número de imputación")
+```
+
+El gráfico muestra cómo se ven los datos de la variable Edad antes y después de imputar los valores que faltaban.
+
+A la izquierda (cuando el número de imputación es 0) están todos los valores observados, es decir, los datos reales que sí estaban en el dataset original. A la derecha (imputación 1 a 5) están los valores imputados por el modelo de `mice`, en las cinco versiones distintas del dataset.
+
+Visualmente, podemos ver que la forma y el rango de los datos imputados son muy parecidos a los observados. Las medianas, los valores mínimos y máximos, y la dispersión en general se mantienen dentro del mismo rango. Esto es una buena señal, ya que indica que el modelo de imputación no generó valores que se salgan de lo que sería esperable en la variable Edad.
+
+También se puede ver que no hay ningún grupo de imputación con edades raramente altas o bajas, lo cual da confianza para seguir con los análisis posteriores usando estos datos.
+
+Para datos categóricos, podemos crear una tabla de dos entradas comparando la distribución de la variable con datos completos e incompletos. Esto requiere primero crear la versión "long" de la data imputada.
+
+```{r}
+data_imputada_l <- complete(data_imputada, "long", include = TRUE)
+```
+
+Para datos categóricos, podemos crear una tabla de dos entradas comparando la distribución de la variable con datos completos e incompletos. Esto requiere primero crear la versión "long" de la data imputada.
+
+```{r}
+data_imputada_l <- data_imputada_l %>%
+  mutate(
+    imputado = .imp > 0,
+    imputado = factor(imputado,
+                      levels = c(FALSE, TRUE),
+                      labels = c("Observado", "Imputado"))
+  )
+
+prop.table(table(data_imputada_l$IgM, data_imputada_l$imputado), margin = 2)
+```
+
+Este resultado muestra la proporción de los valores de la variable IgM según si fueron observados (datos reales) o imputados (valores completados por el modelo).
+
+En los datos observados:
+
+52.4 % de las personas tenían IgM negativo
+
+47.6 % tenían IgM positivo
+
+En los datos imputados:
+
+52.5 % de las personas fueron imputadas como IgM negativo
+
+47.5 % como IgM positivo
+
+Esto quiere decir que las proporciones entre negativo y positivo son prácticamente iguales en los datos reales y los imputados. Es decir, el modelo de imputación replicó muy bien la distribución original de la variable IgM, lo que es una muy buena señal.
+
+### 5.1 Procedimientos adicionales luego de la imputación
+
+Una vez que ya imputamos los datos, podemos usar el dataset completo para hacer análisis como si nunca hubieran faltado valores. El procedimiento más usado después de una imputación múltiple es usar la función with() para correr un modelo (por ejemplo, una regresión), y luego usar pool() para combinar los resultados de las diferentes imputaciones.
+
+Si estás usando el paquete gtsummary, no es necesario usar pool(), ya que este paquete maneja internamente los datos imputados. Solo necesitas usar with() como siempre.
+
+A continuación se muestra un ejemplo de regresión logística multivariada usando la variable Resultado como variable dependiente. El objetivo es ver qué variables están asociadas a tener un resultado positivo en dengue.
+
+```{r}
+tabla_multi <- 
+  with(data_imputada, 
+       glm(Resultado ~ Edad + Genero + NS1 + IgM + Tipo_Zona + Tipo_Vivienda,
+           family = binomial(link = "logit"))) |>
+  tbl_regression(
+    exponentiate = TRUE,
+    label = list(
+      Genero ~ "Sexo",
+      NS1 ~ "NS1",
+      IgM ~ "IgM",
+      Tipo_Zona ~ "Tipo de Zona",
+      Tipo_Vivienda ~ "Tipo de Vivienda"
+    )
+  ) |>
+  bold_p(t = 0.05) |>
+  modify_header(estimate = "**OR ajustado**", p.value = "**p valor**")
+```
+
+```{r}
+tabla_multi
+```
+
+En el análisis de regresión para predecir si una persona tiene dengue positivo, la única variable que mostró una asociación estadísticamente significativa fue IgM positivo. Las personas con este resultado tuvieron una probabilidad mucho menor de tener dengue según el modelo, lo cual puede parecer extraño, pero podría deberse al momento en que se midió la prueba o a otras características clínicas.
+
+Las demás variables incluidas en el modelo, como edad, sexo, tipo de zona y tipo de vivienda, no mostraron una relación significativa con el diagnóstico de dengue. Aunque algunas categorías como "vivienda tipo Tinshed" mostraron un odds ratio elevado, los intervalos de confianza fueron amplios y los valores p altos, lo que indica que no hay evidencia sólida de asociación.
+
+En el caso de NS1, el modelo entregó un odds ratio extremadamente alto, lo cual sugiere que todos los pacientes con NS1 positivo tuvieron dengue positivo. Esto impide que el modelo calcule correctamente el efecto, un fenómeno conocido como separación completa.

@@ -1,0 +1,166 @@
+---
+title: "Análisis de Dengue en Lima"
+author: "Greifo Rodriguez Ani Cecilia, Saire Licla Edgar"
+format: html
+---
+
+# Introducción
+
+En este documento se presenta el análisis descriptivo de un estudio de pacientes adultos y niños con diagnóstico de **dengue**. Se obtienen los estadísticos descriptivos principales y se construye la "Tabla 1" del reporte.
+
+Se evalua los casos positivos y negativos de dengue de acuerdo a ciertas caracterìsticas como edad, tipo de vivienda, circunscripciòn, etc.
+
+```{r}
+#install.packages("gtsummary")
+#install.packages("finalfit")
+#install.packages("flextable")
+```
+
+```{r}
+library(tidyverse)
+library(here)
+library(rio)
+library(gtsummary) ## Para la "Tabla 1"
+library(finalfit)
+library(flextable)
+```
+
+```{r}
+load("C:/Users/Ani/Documents/UPSJB_estadistica_practica/data/dengue.Rdata")
+```
+
+# Paquetes para resumir datos
+
+```{r}
+str(data_dengue_1)
+```
+
+```{r}
+table(data_dengue_1$genero, useNA = "ifany")
+```
+
+```{r}
+table(data_dengue_1$circunscripción, useNA = "ifany")
+```
+
+```{r}
+data_dengue_1 |> 
+  dplyr::count(circunscripción, sort = TRUE)
+```
+
+```{r}
+prop.table(table(data_dengue_1$circunscripción, useNA = "ifany"))
+```
+
+```{r}
+sd(data_dengue_1$edad, na.rm = TRUE)
+```
+
+```{r}
+mean(data_dengue_1$edad, na.rm = TRUE)
+```
+
+```{r}
+min(data_dengue_1$edad, na.rm = TRUE) # Proporciona el valor mínimo
+
+IQR(data_dengue_1$edad, na.rm = TRUE) # Calcula el rango intercuartilico
+
+median(data_dengue_1$edad, na.rm = TRUE) # Calcula la mediana
+```
+
+```{r}
+summary(data_dengue_1$edad)
+```
+
+```{r}
+mean(data_dengue_1$edad, na.rm = T)
+```
+
+```{r}
+median(data_dengue_1$edad, na.rm = T)
+```
+
+```{r}
+data_dengue_1 |> 
+  group_by(resultado) |> 
+  summarise(circunscripción = n(),
+    porcentaje = (circunscripción / nrow(data_dengue_1) * 100)
+  )
+```
+
+# **Tabla 1**
+
+```{r}
+data_dengue_1 |> 
+  select(genero, edad,ns1, circunscripción, zonificación, tipo_vivienda, resultado) |> 
+  tbl_summary()
+```
+
+```{r}
+data_dengue_1 |> 
+  select(genero, edad,ns1, circunscripción, zonificación, tipo_vivienda, resultado) |> 
+  tbl_summary(
+    by = resultado
+  )
+```
+
+```{r}
+data_dengue_1 = data_dengue_1 |> 
+  mutate(
+    grupo_edad = case_when(
+      edad <= 25 ~ "≤25",
+      edad > 25 & edad <= 35 ~ "26-35",
+      edad > 35 & edad <= 50 ~ "36-50",
+      edad > 50 ~ ">50"
+    ) |> 
+    as.factor()
+  )
+```
+
+```{r}
+data_dengue_1 |> 
+  select(genero, edad,ns1, circunscripción, zonificación, tipo_vivienda, resultado) |> 
+  tbl_summary(
+    by = resultado
+  )
+```
+
+```{r}
+tabla_1.v2 = data_dengue_1 |> 
+  select(genero, grupo_edad, ns1, circunscripción, zonificación, tipo_vivienda, resultado) |> 
+  tbl_summary(by = resultado) |> 
+  modify_spanning_header(all_stat_cols() ~ "**Dengue**") |>
+  add_overall() |> 
+  modify_header(
+    label = "**Variable**", 
+    all_stat_cols() ~ "**Estadísticas**"
+  )
+```
+
+```{r}
+tabla_1.v2 = data_dengue_1 |> 
+  select(genero, edad,ns1, circunscripción, zonificación, tipo_vivienda, resultado) |> 
+  tbl_summary(by = resultado) |> 
+  modify_spanning_header(all_stat_cols() ~ "**Dengue en Lima**") |>
+  add_overall() 
+```
+
+```{r}
+tabla_1 = data_dengue_1 |> 
+  select(genero, edad,ns1, circunscripción, zonificación, tipo_vivienda, resultado) |> 
+  tbl_summary(by = resultado) |> 
+  modify_spanning_header(all_stat_cols() ~ "**Dengue**") |>
+  add_overall() |> 
+  modify_caption("**Tabla 1**. Características de los pacientes de la ciudad de Lima respecto al dengue")
+```
+
+```{r}
+install.packages("flextable")
+library(flextable)
+```
+
+```{r}
+flextable::save_as_docx(tabla_1, path = "tabla_1.docx")
+```
+
+![](Rplot.png)

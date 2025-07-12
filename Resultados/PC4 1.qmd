@@ -1,0 +1,272 @@
+---
+title: "PC4 1"
+format: html
+editor: visual
+---
+
+## Instalar y cargar los paquetes
+
+```{r}
+library(factoextra)
+library(cluster)
+library(here)
+library(rio)
+library(tidyverse)
+```
+
+# Análisis de agrupamiento Jerarquico
+
+## 1.1 Sobre el problema para esta sesión
+
+El dataset de esta sesión contiene información de 1000 personas que han sido evaluadas por posible infección por dengue en el distrito de Dhaka, Bangladesh. El dataset incluye variables demográficas (como género y edad), resultados de pruebas rápidas (NS1, IgG, IgM), así como información contextual del entorno urbano donde reside cada paciente (tipo de zona, tipo de vivienda, zona geográfica).
+
+El objetivo de este ejercicio es aplicar el método de agrupamiento jerárquico para identificar grupos de personas que compartan características similares en cuanto a su perfil clínico, epidemiológico y contextual, lo que permitirá explorar posibles patrones de riesgo, entender la distribución del dengue en distintos entornos urbanos, y proponer hipótesis para futuras intervenciones en salud pública.
+
+## 1.2 El dataset para esta sesión
+
+Para ilustrar el proceso de análisis usaremos el dataset llamado `dengue` el cual contiene 1000 observaciones con las siguientes variables: edad (en años), género (masculino/femenino), resultado de prueba NS1 (positivo/negativo), resultado de prueba IgG (positivo/negativo), resultado de prueba IgM (positivo/negativo), zona geográfica (nombre de la zona de residencia), tipo de zona (desarrollada o subdesarrollada), tipo de vivienda (casa, edificio o chabola), distrito (en todos los casos: Dhaka), y resultado diagnóstico (dengue positivo o negativo).
+
+Este conjunto de datos combina información clínica básica con características del entorno urbano y resultados serológicos, lo cual permitirá aplicar técnicas de análisis multivariado y agrupamiento para explorar perfiles de pacientes y posibles patrones espaciales o sociales relacionados con el diagnóstico de dengue.
+
+### 1.2.1 Importando los datos
+
+```{r}
+dengue <- import(here("data", "dengue.csv"))
+```
+
+### 1.2.2 Conversión de variables categóricas a numéricas e inserción del ID
+
+```{r}
+# Insertar columna ID incremental al inicio del dataset
+dengue$ID <- 1:nrow(dengue)
+dengue <- dengue[, c("ID", setdiff(names(dengue), "ID"))]
+
+# Convertir variables categóricas a numéricas
+dengue$Genero <- ifelse(dengue$Genero == "Masculino", 1, 0)
+dengue$NS1 <- ifelse(dengue$NS1 == "Positivo", 1, 0)
+dengue$IgG <- ifelse(dengue$IgG == "Positivo", 1, 0)
+dengue$IgM <- ifelse(dengue$IgM == "Positivo", 1, 0)
+dengue$Tipo_Zona <- ifelse(dengue$Tipo_Zona == "Desarrollada", 1, 0)
+
+# Codificación ordinal para Tipo de Vivienda
+dengue$Tipo_Vivienda <- dplyr::case_when(
+  dengue$Tipo_Vivienda == "Casa" ~ 0,
+  dengue$Tipo_Vivienda == "Edificio" ~ 1,
+  dengue$Tipo_Vivienda == "Chabola" ~ 2,
+  TRUE ~ NA_real_
+)
+
+# Conversión del resultado diagnóstico
+dengue$Resultado <- ifelse(dengue$Resultado == "Dengue positivo", 1, 0)
+```
+
+### 1.2.3 Solo datos numéricos
+
+Para el análisis de agrupamiento jerárquico de esta sesión usaremos solo variables numéricas. Es posible emplear variables categóricas en esta técnica, pero esto no será cubierto aquí. El código abajo elimina las variables categóricas `Sexo` y `Enfermedad_renal`. `id` será el identificador para los participantes.
+
+```{r}
+dengue_data_1 <- dengue |>
+  select(-Zona, -Distrito, -Tipo_Vivienda) |>  # se eliminan columnas no codificadas
+  column_to_rownames("ID")     # usar ID como nombre de fila (identificador)
+```
+
+### 1.2.4 Eliminamos los NA
+
+```{r}
+# Eliminar filas con valores NA del subconjunto numérico
+dengue_data_1 <- na.omit(dengue_data_1)
+```
+
+### 1.3La importancia de estandarizar
+
+Adicionalmente, es fundamental estandarizar las variables antes de realizar el análisis de agrupamiento jerárquico. Estandarizar significa transformar las variables a una escala común para hacerlas comparables entre sí. Esto es especialmente importante porque uno de los pasos clave en el método de agrupamiento consiste en calcular distancias entre los objetos (en este caso, los pacientes) a partir de las variables incluidas en el dataset.
+
+En nuestro caso, aunque muchas variables han sido recodificadas a valores numéricos, estas representan diferentes tipos de información: edad (en años), resultados de pruebas diagnósticas (positivos/negativos codificados como 1/0), y condiciones del entorno urbano (por ejemplo, tipo de vivienda codificado como 0, 1 o 2). Estas variables están en escalas distintas y con rangos muy dispares, lo que podría influir en el cálculo de distancias y sesgar los resultados del análisis.
+
+```{r}
+dengue_data_escalado = scale(dengue_data_1)
+```
+
+Un vistazo a los datos antes del escalamiento:
+
+```{r}
+head(dengue_data_1)
+```
+
+y un vistazo después del escalamiento:
+
+```{r}
+head(dengue_data_escalado)
+```
+
+**Interpretacion:**
+
+Los valores resultantes indican cuántas desviaciones estándar se encuentra cada observación por encima o por debajo del promedio de la variable:
+
+Un valor positivo indica que el individuo está por encima del promedio en esa variable.
+
+Un valor negativo indica que está por debajo del promedio.
+
+Valores cercanos a 0 indican una posición cercana a la media del grupo.
+
+Por ejemplo, un valor de `Edad` igual a `0.56` indica que ese paciente tiene una edad ligeramente mayor al promedio. En contraste, un valor de `NS1` de `-1.06` indica un resultado negativo de la prueba NS1 y que está claramente por debajo del valor medio de esa variable (dominada por pacientes positivos).
+
+## 1.4 Cálculo de distancias
+
+Dado que uno de los pasos es encontrar "cosas similares", necesitamos definir "similar" en términos de distancia. Esta distancia la calcularemos para cada par posible de objetos (participantes) en nuestro dataset. Por ejemplo, si tuvieramos a los pacientes A, B y C, las distancia se calcularían para A vs B; A vs C; y B vs C. En R, podemos utilizar la función `dist()` para calcular la distancia entre cada par de objetos en un conjunto de datos. El resultado de este cálculo se conoce como matriz de distancias o de disimilitud.
+
+```{r}
+dist_dengue_data <- dist(dengue_data_escalado, method = "euclidean")
+```
+
+## 1.4.1 Visualizando las distancias euclidianas con un mapa de calor
+
+Una forma de visualizar si existen patrones de agrupamiento es usando mapas de calor (heatmaps). En R usamos la función `fviz_dist()` del paquete factoextra para crear un mapa de calor.
+
+```{r}
+fviz_dist(dist_dengue_data)
+```
+
+**Interpretacion:**
+
+Al observar el mapa de calor generado a partir de las distancias euclidianas entre los individuos del dataset, se aprecia la presencia de bloques diagonales en tonos rojos. Esto indica que existen subconjuntos de pacientes que presentan características similares entre sí, es decir, que se encuentran relativamente cercanos en el espacio multivariado de las variables analizadas.
+
+Estos bloques de color más intenso no son aleatorios, sino que reflejan visualmente la posibilidad de que haya grupos naturales o clústeres dentro de la población estudiada. Además, las zonas de transición con colores más tenues o difusos sugieren una mayor heterogeneidad entre los individuos que pertenecen a diferentes grupos, lo cual podría indicar límites más suaves entre ciertos patrones de agrupamiento.
+
+En conjunto, la estructura que revela el mapa respalda la idea de que hay cierta organización latente en los datos, lo que justifica plenamente continuar el análisis aplicando técnicas de agrupamiento como el clustering jerárquico o el método de K-means.
+
+## 1.5 El método de agrupamiento: función de enlace
+
+En este análisis se aplica el agrupamiento jerárquico para explorar patrones entre los pacientes del estudio de dengue. Esta técnica comienza agrupando a los individuos más similares entre sí, basándose en la matriz de distancias euclidianas previamente calculada. A medida que avanza el algoritmo, los grupos formados se van uniendo entre ellos de manera progresiva hasta construir un único árbol jerárquico.
+
+Para decidir cómo unir los grupos en cada paso, se utiliza una función de enlace o linkage. En este caso, hemos seleccionado el método de varianza mínima de Ward, ya que es uno de los más utilizados por su capacidad para formar clústeres compactos y bien diferenciados. Este método minimiza la varianza interna de los grupos al momento de fusionarlos.
+
+```{r}
+dist_link_dengue_data <- hclust(d = dist_dengue_data, method = "ward.D2")
+```
+
+## 1.6 Dendrogramas para la visualización de patrones
+
+Los dendrogramas es una representación gráfica del árbol jerárquico generado por la función `hclust()`.
+
+```{r}
+fviz_dend(dist_link_dengue_data, cex = 0.7)
+```
+
+**Interpretacion:**
+
+En este caso, se observa una estructura escalonada y simétrica, lo que sugiere que hay una cierta coherencia en la formación de grupos jerárquicos. Además, la separación clara entre bloques de ramas en las partes bajas del dendrograma sugiere la posibilidad de definir varios clústeres bien diferenciados dentro del conjunto de pacientes.
+
+Este dendrograma servirá como guía para decidir cuántos grupos (clústeres) representar en el análisis final y para interpretar características comunes dentro de cada uno de ellos.
+
+## 1.8 ¿Cúantos grupos se formaron en el dendrograma?
+
+Uno de los problemas con la agrupación jerárquica es que no nos dice cuántos grupos hay ni dónde cortar el dendrograma para formar grupos. Aquí entra en juego la decisión del investigador a partir de analizar el dendrograma. Para nuestro dendrograma, es claro que el dendrograma muestra tres grupos. En el código de abajo, el argumento k = 3 define el número de clusters.
+
+```{r}
+fviz_dend(dist_link_dengue_data,
+          k = 3,
+          cex = 0.5,
+          k_colors = c("#2E9FDF", "#E7B800", "#FC4E07"),
+          color_labels_by_k = TRUE,
+          rect = TRUE)
+```
+
+**Interpretacion:**
+
+En este dendrograma, se ha aplicado un corte a la altura adecuada para dividir los datos en tres clústeres principales, cada uno representado con un color diferente: azul, amarillo y rojo. Esta visualización muestra cómo los pacientes del estudio sobre dengue se agrupan según la similitud de sus características clínicas, demográficas y epidemiológicas.
+
+La estructura del dendrograma revela que los tres grupos están bien definidos y diferenciados entre sí, ya que las uniones entre ellos ocurren a una altura considerable, lo que sugiere una alta disimilitud entre los clústeres. En contraste, las uniones dentro de cada grupo ocurren a alturas bajas, lo que indica que los individuos de un mismo clúster comparten un alto nivel de similitud.
+
+# 2 Agrupamiento con el algoritmo K-Means
+
+El algoritmo K-Means es una técnica ampliamente utilizada para agrupar observaciones similares dentro de un número predefinido de grupos o clústeres, determinado por el investigador. A diferencia del agrupamiento jerárquico, K-Means parte desde cero, sin una estructura previa, y busca optimizar la homogeneidad dentro de cada grupo.
+
+En este análisis, aplicamos K-Means al dataset de pacientes evaluados por dengue, con el objetivo de clasificar a los individuos en tres grupos (K = 3) según su perfil clínico y demográfico. Cada clúster se representa mediante un centroide, que corresponde al promedio de todas las variables de los pacientes pertenecientes a ese grupo.
+
+El funcionamiento general del algoritmo es el siguiente:
+
+1.  Se elige un número de clústeres (K).
+
+2.  Se seleccionan aleatoriamente K puntos iniciales como centros.
+
+3.  Cada paciente se asigna al centroide más cercano según la distancia euclidiana.
+
+4.  Se recalculan los centroides con base en los nuevos grupos formados.
+
+El proceso se repite hasta que los grupos sean estables.
+
+Esta técnica permite explorar agrupamientos alternativos a los obtenidos con métodos jerárquicos, y comparar la estabilidad y la interpretación clínica de los grupos resultantes.
+
+## 2.1 El problema y dataset para este ejercicio
+
+Usaremos el mismo dataset y el mismo problema que el que empleamos en el ejercicio anterior (para Agrupamiento Jerárquico).
+
+## 2.2 Estimando el número óptimo de clusters
+
+Como indiqué arriba, el método de agrupamiento k-means requiere que el usuario especifique el número de clústeres (grupos) a generar. Una pregunta fundamental es: ¿cómo elegir el número adecuado de clústeres esperados (k)?
+
+Aquí muestro una solución sencilla y popular: realizar el agrupamiento k-means probando diferentes valores de k (número de clústeres). Luego, se grafica la suma de cuadrados dentro de los clústeres (WSS) en función del número de clústeres. En R, podemos usar la función fviz_nbclust() para estimar el número óptimo de clústeres.
+
+Primero escalamos los datos:
+
+```{r}
+dengue_data_escalado = scale(dengue_data_1)
+```
+
+Ahora graficamos la suma de cuadrados dentro de los gráficos
+
+```{r}
+fviz_nbclust(dengue_data_escalado, kmeans, nstart = 25, method = "wss") +
+  geom_vline(xintercept = 3, linetype = 2)
+```
+
+**Interpretacion:**
+
+En el gráfico mostrado, el eje vertical representa la WSS, mientras que el eje horizontal indica el número de clústeres evaluados. A medida que se incrementa el número de grupos, la WSS disminuye, ya que los datos se ajustan mejor. Sin embargo, llega un punto en el que añadir más clústeres produce mejoras marginales. Ese punto de inflexión —donde la curva deja de descender rápidamente— se conoce como el codo.
+
+En este análisis, el codo se observa claramente en K = 3, lo que sugiere que dividir los datos en tres clústeres es una solución adecuada y balanceada. Esta conclusión respalda los resultados obtenidos previamente con el análisis jerárquico, donde también se identificaron tres grupos bien definidos.
+
+## 2.3 Cálculo del agrupamiento k-means
+
+Dado que el resultado final del agrupamiento k-means es sensible a las asignaciones aleatorias iniciales, se especifica el argumento `nstart = 25`. Esto significa que R intentará 25 asignaciones aleatorias diferentes y seleccionará la mejor solución, es decir, aquella con la menor variación dentro de los clústeres. El valor predeterminado de `nstart` en R es 1. Sin embargo, se recomienda ampliamente utilizar un valor alto, como 25 o 50, para obtener un resultado más estable y confiable. El valor empleado aquí, fue usado para determinar el número de clústeres óptimos.
+
+```{r}
+set.seed(123)
+km_res <- kmeans(dengue_data_escalado, 3, nstart = 25)
+```
+
+```{r}
+km_res
+```
+
+**Interpretacion:**
+
+Se aplicó el algoritmo K-Means con tres grupos (K = 3), y se obtuvieron clústeres de tamaños 252, 281 y 467 pacientes, respectivamente. Esto muestra una distribución relativamente equilibrada. Cada grupo está definido por un centroide que representa el promedio de las variables estandarizadas.
+
+El primer grupo se caracteriza por valores elevados en NS1, IgG y Resultado, lo que sugiere predominancia de casos positivos de dengue. El segundo grupo también presenta valores altos en NS1 e IgG, pero bajos en Resultado, lo que podría reflejar pacientes con pruebas serológicas positivas pero sin confirmación clínica. El tercer grupo tiene valores bajos en casi todas las variables, especialmente en Resultado y pruebas serológicas, lo cual indicaría un perfil más alejado del diagnóstico de dengue.
+
+Estos resultados permiten identificar patrones distintos entre los pacientes y serán útiles para comparar características clínicas y demográficas entre los grupos formados.
+
+## 3.4 Visualización de los clústeres k-means
+
+Luego de aplicar el algoritmo K-means, es posible visualizar los grupos generados mediante un gráfico de dispersión, donde cada punto representa a un paciente y su color indica el clúster asignado. Como el dataset tiene múltiples variables, se utiliza el Análisis de Componentes Principales (PCA) para reducir la dimensionalidad y proyectar los datos en dos dimensiones (componente 1 y 2).
+
+Esto permite observar cómo se distribuyen los grupos en el espacio reducido y evaluar visualmente su separación.
+
+```{r}
+fviz_cluster(
+  km_res,
+  data = dengue_data_escalado,
+  palette = c("#2E9FDF", "#E7B800", "#FC4E07"),
+  ellipse.type = "euclid",
+  repel = TRUE,
+  ggtheme = theme_minimal()
+)
+```
+
+**Interpretacion:**
+
+El gráfico muestra la proyección de los pacientes en el plano de las dos primeras componentes principales (Dim1 y Dim2), que juntas explican cerca del 58% de la variabilidad total de los datos. Cada punto representa a un paciente, y el color indica el clúster al que fue asignado por el algoritmo K-means.
+
+Se observa una separación clara entre los tres grupos, especialmente a lo largo del eje horizontal (Dim1). El clúster 1 (en azul) y el clúster 2 (en amarillo) se ubican principalmente a la derecha del gráfico, aunque con cierta superposición. En contraste, el clúster 3 (en rojo) está bien delimitado hacia el lado izquierdo, lo que indica que sus individuos presentan un perfil diferenciado respecto a los otros dos grupos.

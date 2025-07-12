@@ -1,0 +1,156 @@
+---
+title: "Explorando el Dengue con RStudio: Aprendiendo a Visualizar y Dimensionar una Epidemia"
+format: html
+editor: Grupo 8
+---
+
+# Integrantes: 
+
+-   Greifo Rodríguez Ani Cecilia
+
+-   Pareja Abad Shaden
+
+-   Quispe Prado Miluska
+
+-   Edgar Saire Licla
+
+-   Enrique Tincopa Zarate
+
+# Instalar y cargar librerías necesarias
+
+Este bloque instala y carga las librerías necesarias para el análisis. La librería ggplot2 se utiliza para crear visualizaciones gráficas, mientras que dplyr facilita la manipulación de datos. Este paso asegura que todas las herramientas requeridas estén disponibles antes de proceder con el análisis.
+
+```{r}
+# instalar paqueterías necesarias:
+
+if(!require(ggplot2)) 
+install.packages("ggplot2") 
+if(!require(dplyr)) 
+  install.packages("dplyr") 
+
+# cargar paqueterías necesarias:
+
+library(ggplot2) 
+library(dplyr)
+```
+
+# Cargar el dataset
+
+Este bloque carga el dataset dengue.csv, que contiene información sobre casos de dengue en Dhaka, Bangladesh, incluyendo variables como género, edad, resultados de pruebas, tipo de zona y tipo de vivienda. También se convierten las variables categóricas a factores para facilitar su análisis y visualización.
+
+```{r}
+dengue <- read.csv("C:/Users/Franco Rodrigo/Desktop/DATA/dengue.csv", stringsAsFactors = TRUE)
+```
+
+# Resumen básico del dataset
+
+Este bloque proporciona un resumen básico del dataset, mostrando la estructura de las variables (tipos de datos y niveles de factores) y estadísticas descriptivas como medias, medianas y frecuencias. Esto ayuda a entender la composición del dataset antes de realizar visualizaciones.
+
+```{r}
+str(dengue) 
+summary(dengue) 
+```
+
+# Verificar los primeros registros
+
+Este bloque muestra los primeros seis registros del dataset para verificar que los datos se hayan cargado correctamente y para obtener una vista previa de las variables, como género, edad, resultados de pruebas y tipo de vivienda.
+
+```{r}
+head(dengue)
+```
+
+# Gráfico de barras: Casos de dengue por género
+
+Generaremos un gráfico de barras que muestra la distribución de casos de dengue **(positivos y negativos)** según el género. Permite comparar la frecuencia de casos entre hombres y mujeres, destacando posibles diferencias en la prevalencia.
+
+```{r}
+
+library(ggplot2)
+
+ggplot(dengue, aes(x = Genero, fill = Resultado)) +
+  geom_bar(position = "dodge") +
+  labs(
+    title = "Distribución de Casos de Dengue por Género",
+    x = "Género",
+    y = "Cantidad de Casos"
+  ) +
+  scale_fill_manual(values = c("Dengue negativo" = "#FF6384", "Dengue positivo" = "#36A2EB")) +
+  theme_minimal()
+
+```
+
+# Gráfico de barras: Casos de dengue por tipo de zona
+
+Generaremos un gráfico de barras que muestra la distribución de casos de dengue según el tipo de zona **(desarrollada o no desarrollada).** Esto permite analizar si las condiciones urbanas influyen en la prevalencia del dengue.
+
+```{r}
+
+# Casos de dengue según el tipo de zona (desarrollada o no desarrollada), analizando el impacto de las condiciones urbanas.
+
+ggplot(dengue, aes(x = Tipo_Zona, fill = Resultado)) +
+  geom_bar(position = "dodge") +
+  labs(
+    title = "Distribución de Casos de Dengue por Tipo de Zona",
+    x = "Tipo de Zona",
+    y = "Cantidad de Casos"
+  ) +
+  scale_fill_manual(values = c("Dengue negativo" = "#4BC0C0", "Dengue positivo" = "#FFCE56")) +
+  theme_minimal()
+
+# Guardar el gráfico
+ggsave("casos_por_tipo_zona.png", width = 8, height = 6)
+```
+
+# Gráfico de caja: Edad por resultado de dengue
+
+Generaremos un gráfico de caja que muestra la distribución de la edad para casos de dengue positivos y negativos. Esto permite identificar diferencias en la edad promedio y la variabilidad entre los grupos.
+
+```{r}
+
+# Cargar librerías necesarias
+library(dplyr)
+library(ggplot2)
+
+# para casos de dengue positivos y negativos, destacando diferencias en la edad promedio y variabilidad.
+
+ggplot(dengue, aes(x = Resultado, y = Edad, fill = Resultado)) +
+  geom_boxplot() +
+  labs(
+    title = "Distribución de Edad por Resultado de Dengue",
+    x = "Resultado",
+    y = "Edad"
+  ) +
+  scale_fill_manual(values = c("Dengue negativo" = "#FF6384", "Dengue positivo" = "#36A2EB")) +
+  theme_minimal()
+
+# Guardar el gráfico
+ggsave("edad_por_resultado.png", width = 8, height = 6)
+```
+
+# Cálculo del Tamaño de Muestra
+
+Este bloque calcula el tamaño de muestra necesario para estimar la prevalencia de dengue en Dhaka con un 95% de confianza y un margen de error del 5%. Se utiliza una proporción estimada de casos positivos (52%) y se aplica una corrección para una población finita de 20 millones.
+
+```{r}
+# Parámetros
+p <- 0.52  # Proporción estimada de casos positivos
+Z <- 1.96  # Valor Z para 95% de confianza
+E <- 0.05  # Margen de error
+N <- 20000000  # Tamaño de la población (aproximado para Dhaka)
+
+# Cálculo del tamaño de muestra
+n <- (Z^2 * p * (1-p)) / (E^2)
+n_ajustado <- n / (1 + (n-1)/N)
+
+# Mostrar resultados
+cat("Tamaño de muestra sin corrección:", round(n), "\n")
+cat("Tamaño de muestra ajustado:", round(n_ajustado), "\n")
+```
+
+# Conclusión
+
+El dataset dengue.csv proporciona información valiosa sobre los casos de dengue en Dhaka, Bangladesh, incluyendo variables como género, edad, tipo de zona, tipo de vivienda y resultados de pruebas (NS1, IgG, IgM).
+
+Los gráficos descriptivos generados muestran que los casos de dengue están distribuidos de manera similar entre géneros, con una ligera prevalencia de casos positivos en mujeres. Las zonas no desarrolladas presentan una proporción ligeramente mayor de casos positivos, lo que sugiere posibles influencias de factores ambientales o socioeconómicos.
+
+La distribución de edad indica que los casos positivos se concentran en edades medias **(21-50 años)**, mientras que los tipos de vivienda como edificios y "Tinshed" muestran una mayor frecuencia de casos positivos, posiblemente relacionados con condiciones de hacinamiento o exposición a mosquitos.
