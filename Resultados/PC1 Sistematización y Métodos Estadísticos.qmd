@@ -1,0 +1,102 @@
+---
+title: "ACTIVIDAD1_PC1"
+author: "GRUPO1_MA"
+format: html
+editor: visual
+---
+
+# PRÁCTICA 1
+
+## GRUPO 8 - INTEGRANTES
+
+Edgar Saire Licla
+
+Enrique Tincopa Zarate
+
+Miluska Quispe Prado
+
+Ani Greifo Rodriguez
+
+Shaden Pareja Abad
+
+### FUNCIONES
+
+```{r}
+# Antes de crear una lista, primero empezaremos agregando diferentes tipos de vectores
+a = "Abril"
+b = 39
+```
+
+```{r}
+#Con class veremos que tipo de vectores son
+class(c)
+class(b)
+```
+
+```{r}
+#Con is.vector vamos a comprobar que los vectores colocados sean simples
+is.vector(a) 
+is.vector(b)
+```
+
+### 1. Lista (list)
+
+La función se escribe (list.) y se usa para crear una lista de elementos heterogéneos , es decir que pueden ser de diferentes tipos. Ya sea datos , números , vectores , incluso otras listas.
+
+```{r}
+lista_ejemplo <- list(a, b)
+```
+
+```{r}
+#Podemos crear un vector con datos y agregarlo a la lista incluso después de creada, solo se debe volver a correr el chunk
+c <- c("R", "Phyton", "Excel")
+lista_ejemplo <- list(a, b, c)
+```
+
+### 2. Dataframe
+
+**Dataframe** se escribe con la función `data.frame()`, dónde se asignan nombres a las columnas y se ingresan sus respectivos valores. Sirve para organizar, consultar, filtrar, modificar y analizar datos estructurados, y es muy utilizado en análisis estadístico y científico.
+
+```{r}
+trabajadores = data.frame(nombres = c("Rosa", "Miluska", "Luis", "Shadem"),
+                    sexo = c("f", "f", "m", "f"),
+                    edad = c(20, 25, 32, 40),
+                    puesto = c("recepcionista", "enfermera", "interno", "doctora"))
+```
+
+### 3. Set.seed
+
+La función se llama set.seed() y sirve para fijar una semilla aleatoria, lo que permite que los resultados de funciones aleatorias, como rnorm(), sean reproducibles. Es decir, al usar set.seed() los números aleatorios generados serán los mismos siempre. Por ejemplo, rnorm() genera números aleatorios siguiendo una distribución normal. Si usamos set.seed() antes de rnorm() obtendremos siempre los mismos resultados cada vez que corramos el código.
+
+El número que va dentro de los paréntesis en set.seed() es la "semilla" que determina la secuencia y el límite superior de números aleatorios. En caso del siguiente ejemplo colocamos "set.seed(80)", de manera que los número aleatorios que obtendremos serán siempre los mismos y ninguno será mayor que 80.
+
+```{r}
+set.seed(60)
+rnorm(n = 14, mean = 20, sd = 7)
+```
+
+### INSTALACIÓN Y ACTIVACIÓN DE PAQUETES (3 complementarios)
+
+```{r}
+install.packages("diffobj")
+```
+
+```{r}
+library(diffobj)
+```
+
+```{r}
+install.packages("colorspace")
+```
+
+```{r}
+library(colorspace)
+```
+
+```{r}
+install.packages("htmltools")
+```
+
+```{r}
+library(htmltools)
+```
